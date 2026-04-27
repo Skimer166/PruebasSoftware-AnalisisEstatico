@@ -1,0 +1,19 @@
+{
+  "name": "university-search-playwright-bdd",
+  "version": "1.0.0",
+  "description": "BDD + DDT university search tests using Playwright + Cucumber.js + TypeScript",
+  "scripts": {
+    "test": "cucumber-js",
+    "test:headed": "HEADED=true cucumber-js"
+  },
+  "dependencies": {
+    "@cucumber/cucumber": "^11.0.0",
+    "@playwright/test": "^1.44.0",
+    "playwright": "^1.44.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.39",
+    "ts-node": "^10.9.0",
+    "typescript": "^5.4.0"
+  }
+}
