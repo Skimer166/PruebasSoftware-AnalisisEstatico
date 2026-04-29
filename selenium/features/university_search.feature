@@ -17,7 +17,13 @@ Feature: University Website Search
     Then I should see results related to "<expected_content>"
 
     Examples: Universities and search terms
-      | search_term              | expected_domain | internal_search_term | expected_content |
-      | iteso                    | iteso.mx        | carreras             | humanidades      |
-      | udg                      | udg.mx          | oferta academica     | arquitectura     |
-      | universidad veracruzana  | uv.mx           | nuestros programas   | arquitectura     |
+      | search_term                    | expected_domain | internal_search_term | expected_content |
+      | iteso                          | iteso.mx        | carreras             | humanidades      |
+      | iteso posgrado maestria        | iteso.mx        | posgrado             | maestr           |
+      | iteso                          | iteso.mx        | investigacion        | investigaci      |
+      | udg                            | udg.mx          | oferta academica     | arquitectura     |
+      | udg posgrado maestria          | udg.mx          | posgrado             | maestr           |
+      | udg                            | udg.mx          | servicios            | servicio         |
+      | universidad veracruzana        | uv.mx           | nuestros programas   | arquitectura     |
+      | universidad veracruzana        | uv.mx           | investigacion        | investigaci      |
+      | universidad veracruzana        | uv.mx           | posgrado             | oferta           |

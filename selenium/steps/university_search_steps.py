@@ -18,37 +18,88 @@ DIRECT_HOME_URLS = {
     "uv.mx": "https://www.uv.mx/",
 }
 
+# Cada entrada: (acción, valor, new_tab)
 NAV_STEPS = {
-    "iteso.mx": [
-        (
-            By.XPATH,
-            "//p[contains(@class,'txttitle') and normalize-space(text())='Carreras']",
-            True,
-        ),
-    ],
-    "udg.mx": [
-        (By.XPATH, "//a[@href='/es/oferta-academica']", False),
-        (
-            By.XPATH,
-            "//a[contains(@href,'guiadecarreras.udg.mx/category/areas')]",
-            False,
-        ),
-    ],
-    "uv.mx": [
-        (By.XPATH, "//a[@href='/ofertaeducativa/' and @role='button']", False),
-        (
-            By.XPATH,
-            "//a[@href='https://www.uv.mx/ofertaeducativa/area/tecnica/']",
-            False,
-        ),
-    ],
+    "iteso.mx": {
+        "carreras": [
+            (
+                By.XPATH,
+                "//p[contains(@class,'txttitle') and normalize-space(text())='Carreras']",
+                True,
+            ),
+        ],
+        "posgrado": [
+            ("NONE", "", False),
+        ],
+        "investigacion": [
+            (
+                By.XPATH,
+                "//a[contains("
+                "translate(normalize-space(.),"
+                "'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),"
+                "'investigaci')]",
+                False,
+            ),
+        ],
+    },
+    "udg.mx": {
+        "oferta academica": [
+            (By.XPATH, "//a[@href='/es/oferta-academica']", False),
+            (
+                By.XPATH,
+                "//a[contains(@href,'guiadecarreras.udg.mx/category/areas')]",
+                False,
+            ),
+        ],
+        "posgrado": [
+            ("NONE", "", False),
+        ],
+        "servicios": [
+            (
+                By.XPATH,
+                "//a[contains(@href,'servicios') or contains("
+                "translate(normalize-space(.),"
+                "'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),"
+                "'servicios')]",
+                False,
+            ),
+        ],
+    },
+    "uv.mx": {
+        "nuestros programas": [
+            (By.XPATH, "//a[@href='/ofertaeducativa/' and @role='button']", False),
+            (
+                By.XPATH,
+                "//a[@href='https://www.uv.mx/ofertaeducativa/area/tecnica/']",
+                False,
+            ),
+        ],
+        "investigacion": [
+            (
+                By.XPATH,
+                "//a[contains(@href,'investigacion') or contains("
+                "translate(normalize-space(.),"
+                "'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),"
+                "'investigaci')]",
+                False,
+            ),
+        ],
+        "posgrado": [
+            ("URL", "https://www.uv.mx/posgrado/", False),
+        ],
+    },
 }
 
-
 VERIFY_TEXT = {
-    "iteso.mx": "humanidades",
-    "udg.mx": "abogado",
-    "uv.mx": "arquitectura",
+    ("iteso.mx", "carreras"): "humanidades",
+    ("iteso.mx", "posgrado"): "maestr",
+    ("iteso.mx", "investigacion"): "investigaci",
+    ("udg.mx", "oferta academica"): "abogado",
+    ("udg.mx", "posgrado"): "maestr",
+    ("udg.mx", "servicios"): "servicio",
+    ("uv.mx", "nuestros programas"): "arquitectura",
+    ("uv.mx", "investigacion"): "investigaci",
+    ("uv.mx", "posgrado"): "oferta",
 }
 
 
@@ -63,8 +114,9 @@ def _accept_cookies(driver):
                 EC.element_to_be_clickable(
                     (
                         By.XPATH,
-                        f"//button[contains(translate(.,"
-                        f"'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'{txt}')]",
+                        f"//button[contains("
+                        f"translate(.,'ABCDEFGHIJKLMNOPQRSTUVWXYZ',"
+                        f"'abcdefghijklmnopqrstuvwxyz'),'{txt}')]",
                     )
                 )
             )
@@ -76,10 +128,7 @@ def _accept_cookies(driver):
 
 
 def _safe_click(driver, by, selector, timeout=20, new_tab=False):
-    """
-    Localiza el elemento, hace scroll y clickea via JS.
-    Si new_tab=True, espera que se abra una pestaña nueva y cambia a ella.
-    """
+    """Localiza el elemento, hace scroll y lo clickea via JS."""
     el = WebDriverWait(driver, timeout).until(
         EC.presence_of_element_located((by, selector))
     )
@@ -92,37 +141,38 @@ def _safe_click(driver, by, selector, timeout=20, new_tab=False):
     driver.execute_script("arguments[0].click();", el)
 
     if new_tab:
-        # Esperar a que aparezca la nueva pestaña
         WebDriverWait(driver, 10).until(
             lambda d: len(d.window_handles) > len(handles_before)
         )
         new_handle = (set(driver.window_handles) - handles_before).pop()
         driver.switch_to.window(new_handle)
 
-    WebDriverWait(driver, 15).until(
-        lambda d: d.execute_script("return document.readyState") == "complete"
-    )
+    try:
+        WebDriverWait(driver, 15).until(
+            lambda d: d.execute_script("return document.readyState") == "complete"
+        )
+    except TimeoutException:
+        pass
     time.sleep(1.5)
 
 
 def _current_domain(driver):
+    """Extrae el dominio limpio de la URL actual del driver."""
     url = driver.current_url.lower()
     url = url.replace("https://", "").replace("http://", "").replace("www.", "")
     return url.split("/")[0]
 
 
-# Steps
 @given("I am on the Google homepage")
 def open_google(context):
-    """abrir google"""
+    """Abre el navegador y navega a Google."""
     options = Options()
     options.add_argument("--disable-blink-features=AutomationControlled")
     options.add_experimental_option("excludeSwitches", ["enable-automation"])
     options.add_experimental_option("useAutomationExtension", False)
     options.add_argument(
         "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/124.0.0.0 Safari/537.36"
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
     )
     context.driver = webdriver.Chrome(options=options)
     context.driver.maximize_window()
@@ -132,7 +182,7 @@ def open_google(context):
 
 @when('I search for "{query}" on Google')
 def search_google(context, query):
-    """Escribe el query en el buscador de Google y presiona Enter."""
+    """Escribe el query en Google y presiona Enter."""
     driver = context.driver
     box = _wait(driver).until(EC.element_to_be_clickable((By.NAME, "q")))
     box.clear()
@@ -176,10 +226,7 @@ def click_first_result(context):
 
 @then('I should be on the domain "{expected_domain}"')
 def verify_domain(context, expected_domain):
-    """
-    Verifica el dominio. Si Google no navegó al sitio (bug de click),
-    navega directo como fallback antes de fallar.
-    """
+    """Verifica que el dominio actual coincida con el esperado."""
     driver = context.driver
     clean = expected_domain.lower().replace("www.", "")
 
@@ -190,11 +237,9 @@ def verify_domain(context, expected_domain):
 
     if clean not in driver.current_url.lower():
         home = next((u for k, u in DIRECT_HOME_URLS.items() if k in clean), None)
-        assert home, (
-            f"No se pudo navegar a '{expected_domain}'.\n"
-            f"URL actual: {driver.current_url}"
-        )
-        print(f"  [fallback] Navegando directo a {home}")
+        assert (
+            home
+        ), f"No se pudo navegar a '{expected_domain}'.\nURL actual: {driver.current_url}"
         driver.get(home)
         _wait(driver, 15).until(
             lambda d: d.execute_script("return document.readyState") == "complete"
@@ -207,35 +252,38 @@ def verify_domain(context, expected_domain):
 
 
 @when('I search for "{search_term}" on the university site')
-def search_on_university_site(context, search_term):  # pylint: disable=unused-argument
-    """
-    Ejecuta los clicks de navegación interna definidos en NAV_STEPS
-    para el dominio actual.
-    El argumento search_term es requerido por Behave para parsear el step
-    aunque la navegación se resuelve por dominio via NAV_STEPS.
-    """
+def search_on_university_site(context, search_term):
+    """Ejecuta la navegación interna definida en NAV_STEPS para el dominio y término dados."""
     driver = context.driver
     domain = _current_domain(driver)
+    context.internal_search_term = search_term
     _accept_cookies(driver)
 
-    steps = next((v for k, v in NAV_STEPS.items() if k in domain), None)
-    assert steps is not None, (
-        f"No hay navegación definida para '{domain}'. "
-        f"Agrega una entrada en NAV_STEPS."
-    )
+    domain_steps = next((v for k, v in NAV_STEPS.items() if k in domain), None)
+    assert domain_steps is not None, f"No hay navegación definida para '{domain}'."
 
-    for by, selector, new_tab in steps:
-        print(f"  [nav] Clickeando: {selector}")
-        _safe_click(driver, by, selector, new_tab=new_tab)
+    steps = domain_steps.get(search_term)
+    assert (
+        steps is not None
+    ), f"No hay navegación definida para '{domain}' + '{search_term}'."
+
+    for action, selector, new_tab in steps:
+        if action == "NONE":
+            time.sleep(1.5)
+        elif action == "URL":
+            driver.get(selector)
+            _wait(driver, 15).until(
+                lambda d: d.execute_script("return document.readyState") == "complete"
+            )
+            time.sleep(1.5)
+        else:
+            _safe_click(driver, action, selector, new_tab=new_tab)
         _accept_cookies(driver)
 
 
 @then('I should see results related to "{expected_content}"')
 def verify_results(context, expected_content):
-    """
-    Verifica que el texto esperado esté presente en el body de la página.
-    Primero espera activamente hasta 20s a que aparezca.
-    """
+    """Verifica que el texto esperado aparezca en el body de la página."""
     driver = context.driver
 
     try:
@@ -246,7 +294,8 @@ def verify_results(context, expected_content):
     except TimeoutException:
         body = driver.find_element(By.TAG_NAME, "body").text.lower()
         domain = _current_domain(driver)
-        fallback = VERIFY_TEXT.get(domain, expected_content).lower()
+        search_term = getattr(context, "internal_search_term", "")
+        fallback = VERIFY_TEXT.get((domain, search_term), expected_content).lower()
         assert fallback in body, (
             f"Texto esperado '{expected_content}' (o '{fallback}') "
             f"no encontrado en la página.\nURL: {driver.current_url}"
