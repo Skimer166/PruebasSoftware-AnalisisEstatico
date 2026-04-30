@@ -1,37 +1,41 @@
 import { Given, When, Then } from "@cucumber/cucumber";
-import { Page, expect } from "@playwright/test";
+import { Locator, Page, expect } from "@playwright/test";
 import { PlaywrightWorld } from "../support/world";
 
-// URLs de inicio directas
-const DIRECT_HOME_URLS: Record<string, string> = {
-  "iteso.mx": "https://www.iteso.mx/",
-  "udg.mx": "https://www.udg.mx/",
-  "uv.mx": "https://www.uv.mx/",
-};
-
-// Pasos de navegación interna por dominio
-interface NavStep {
-  selector?: string;
-  url?: string;
-  newTab?: boolean;
+interface SearchConfig {
+  buttonSelectors: string[]; // toggle de la lupa
+  inputSelectors: string[]; // campo de texto de búsqueda
 }
 
-const NAV_STEPS: Record<string, NavStep[]> = {
-  "iteso.mx": [{ selector: "p.txttitle >> text=Carreras", newTab: true }],
-  "udg.mx": [{ url: "http://guiadecarreras.udg.mx/category/areas/" }],
-  "uv.mx": [{ url: "https://www.uv.mx/ofertaeducativa/area/tecnica/" }],
-};
-
-// Texto esperado en página final por dominio
-const VERIFY_TEXT: Record<string, string> = {
-  "iteso.mx": "humanidades",
-  "udg.mx": "abogado",
-  "uv.mx": "arquitectura",
+const SEARCH_CONFIG: Record<string, SearchConfig> = {
+  "iteso.mx": {
+    buttonSelectors: [],
+    inputSelectors: [
+      "#ipt-search",
+      "input.text-buscador",
+      "input.search-text-ipt",
+    ],
+  },
+  "udg.mx": {
+    buttonSelectors: ["#buscar_front"],
+    inputSelectors: [
+      "#edit-keys", // input que aparece tras abrir el buscador
+      "input[name='keys']",
+      "input.form-search",
+    ],
+  },
+  "uv.mx": {
+    buttonSelectors: ["#navbarDropdownSearch"],
+    inputSelectors: [
+      ".dropdown-search input", // input dentro del dropdown que aparece al hacer clic
+      ".dropdown-menu.dropdown-search input",
+    ],
+  },
 };
 
 // Helpers
 
-function extractDomain(url: string): string {
+function domainKey(url: string): string {
   return url
     .toLowerCase()
     .replace(/https?:\/\//, "")
@@ -39,63 +43,44 @@ function extractDomain(url: string): string {
     .split("/")[0];
 }
 
-// Intenta cerrar banners de cookies/consentimiento
 async function acceptCookies(page: Page): Promise<void> {
-  const cookieSelectors = [
+  const selectors = [
     "button:has-text('Aceptar todo')",
     "button:has-text('Accept all')",
     "button:has-text('Aceptar')",
     "button:has-text('Accept')",
-    "button:has-text('Agree')",
-    "button:has-text('I agree')",
     "#L2AGLb",
     "form:nth-child(2) button",
   ];
-  for (const sel of cookieSelectors) {
+  for (const sel of selectors) {
     try {
       const btn = page.locator(sel).first();
-      if (await btn.isVisible({ timeout: 1500 })) {
+      if (await btn.isVisible({ timeout: 1200 })) {
         await btn.click();
-        await page.waitForTimeout(600);
+        await page.waitForTimeout(500);
         return;
       }
-    } catch {
-      // Not found, try next
-    }
+    } catch {}
   }
 }
 
-async function safeClick(
+async function findVisibleLocator(
   page: Page,
-  selector: string,
-  newTab = false,
-): Promise<Page> {
-  const el = page.locator(selector).first();
-  await el.waitFor({ state: "attached", timeout: 20000 });
-  await el.scrollIntoViewIfNeeded();
-  await page.waitForTimeout(600);
-
-  if (newTab) {
-    // Playwright detecta la nueva pestaña con context.waitForEvent("page")
-    const [newPage] = await Promise.all([
-      page.context().waitForEvent("page"),
-      el.click(),
-    ]);
-    await newPage.waitForLoadState("domcontentloaded");
-    await newPage.waitForTimeout(1000);
-    return newPage;
+  selectors: string[],
+  timeoutMs = 2000,
+): Promise<Locator | null> {
+  for (const sel of selectors) {
+    try {
+      const loc = page.locator(sel).first();
+      if (await loc.isVisible({ timeout: timeoutMs })) return loc;
+    } catch {}
   }
-
-  await el.click();
-  await page.waitForLoadState("domcontentloaded");
-  await page.waitForTimeout(1000);
-  return page;
+  return null;
 }
 
-// Steps
+// Escenario 1: Búsqueda en Google
 
 Given("I am on the Google homepage", async function (this: PlaywrightWorld) {
-  // Navega a la página principal de Google
   await this.page.goto("https://www.google.com", {
     waitUntil: "networkidle",
     timeout: 30000,
@@ -107,33 +92,22 @@ Given("I am on the Google homepage", async function (this: PlaywrightWorld) {
 When(
   "I search for {string} on Google",
   async function (this: PlaywrightWorld, query: string) {
-    const searchSelectors = [
-      "input[name='q']",
-      "textarea[name='q']",
-      "input[title='Buscar']",
-      "input[title='Search']",
-      "[aria-label='Buscar']",
-      "[aria-label='Search']",
-    ];
-
-    let searchBox = null;
-    for (const sel of searchSelectors) {
-      try {
-        const loc = this.page.locator(sel).first();
-        await loc.waitFor({ state: "visible", timeout: 5000 });
-        searchBox = loc;
-        break;
-      } catch {
-        // probar siguiente selector
-      }
-    }
+    const searchBox = await findVisibleLocator(
+      this.page,
+      [
+        "textarea[name='q']",
+        "input[name='q']",
+        "[aria-label='Buscar']",
+        "[aria-label='Search']",
+      ],
+      6000,
+    );
 
     if (!searchBox) {
       throw new Error(
-        `No se encontró el campo de búsqueda en Google.\nURL actual: ${this.page.url()}`,
+        `Search box not found on Google. URL: ${this.page.url()}`,
       );
     }
-
     await searchBox.fill(query);
     await searchBox.press("Enter");
     await this.page.waitForSelector("#search", { timeout: 15000 });
@@ -143,7 +117,6 @@ When(
 When(
   "I click on the first search result",
   async function (this: PlaywrightWorld) {
-    // Hace click en el primer resultado orgánico de Google
     const firstResult = this.page
       .locator("#search a[href]:not([href*='google'])")
       .first();
@@ -151,7 +124,7 @@ When(
     await firstResult.scrollIntoViewIfNeeded();
     await firstResult.click();
     await this.page.waitForLoadState("domcontentloaded");
-    await this.page.waitForTimeout(1000);
+    await this.page.waitForTimeout(1500);
   },
 );
 
@@ -159,80 +132,94 @@ Then(
   "I should be on the domain {string}",
   async function (this: PlaywrightWorld, expectedDomain: string) {
     const clean = expectedDomain.toLowerCase().replace("www.", "");
-
-    // Esperar hasta 10s a que la URL contenga el dominio
     try {
       await this.page.waitForURL(`**${clean}**`, { timeout: 10000 });
     } catch {
-      const currentUrl = this.page.url();
-      if (!currentUrl.toLowerCase().includes(clean)) {
-        const homeUrl = Object.entries(DIRECT_HOME_URLS).find(([key]) =>
-          clean.includes(key),
-        )?.[1];
-
-        if (!homeUrl) {
-          throw new Error(
-            `No se pudo navegar a '${expectedDomain}'. URL actual: ${currentUrl}`,
-          );
-        }
-
-        await this.page.goto(homeUrl, { waitUntil: "domcontentloaded" });
-        await this.page.waitForTimeout(1000);
-      }
+      /* verify below */
     }
+    expect(this.page.url().toLowerCase()).toContain(clean);
+  },
+);
 
-    const currentUrl = this.page.url().toLowerCase();
-    expect(currentUrl).toContain(clean);
+// Escenarios 2 y 3: buscador interno de la universidad
+
+Given(
+  "I navigate directly to {string}",
+  async function (this: PlaywrightWorld, url: string) {
+    await this.page.goto(url, {
+      waitUntil: "domcontentloaded",
+      timeout: 30000,
+    });
+    await acceptCookies(this.page);
+    await this.page.waitForTimeout(800);
   },
 );
 
 When(
-  "I search for {string} on the university site", // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  async function (this: PlaywrightWorld, _searchTerm: string) {
-    const domain = extractDomain(this.page.url());
-    await acceptCookies(this.page);
-
-    const steps = Object.entries(NAV_STEPS).find(([key]) =>
+  "I click the search icon and type {string}",
+  async function (this: PlaywrightWorld, searchTerm: string) {
+    const domain = domainKey(this.page.url());
+    const config = Object.entries(SEARCH_CONFIG).find(([key]) =>
       domain.includes(key),
     )?.[1];
 
-    if (!steps) {
+    if (!config) {
+      throw new Error(`No hay config de búsqueda para el dominio: ${domain}`);
+    }
+
+    // Ver si el campo de busqueda ya está visible
+    let input = await findVisibleLocator(
+      this.page,
+      config.inputSelectors,
+      2000,
+    );
+
+    // Si no está visible, hacer clic en el botón/lupa para abrirlo
+    if (!input) {
+      if (config.buttonSelectors.length === 0) {
+        throw new Error(
+          `El input de búsqueda no es visible y no hay botón definido para ${domain}`,
+        );
+      }
+      const btn = await findVisibleLocator(
+        this.page,
+        config.buttonSelectors,
+        5000,
+      );
+      if (!btn) {
+        throw new Error(
+          `No se encontró el botón de búsqueda en ${this.page.url()}\n` +
+            `Intentados: ${config.buttonSelectors.join(", ")}`,
+        );
+      }
+      await btn.scrollIntoViewIfNeeded();
+      await btn.click();
+      await this.page.waitForTimeout(800);
+
+      // Ahora buscar el input que apareció
+      input = await findVisibleLocator(this.page, config.inputSelectors, 5000);
+    }
+
+    if (!input) {
       throw new Error(
-        `No hay navegación definida para '${domain}'. ` +
-          `Agrega una entrada en NAV_STEPS.`,
+        `No se encontró el campo de búsqueda en ${this.page.url()}\n` +
+          `Intentados: ${config.inputSelectors.join(", ")}`,
       );
     }
 
-    for (const step of steps) {
-      if (step.url) {
-        await this.page.goto(step.url, {
-          waitUntil: "domcontentloaded",
-          timeout: 30000,
-        });
-        await this.page.waitForTimeout(1000);
-      } else if (step.selector) {
-        const resultPage = await safeClick(
-          this.page,
-          step.selector,
-          step.newTab ?? false,
-        );
-        if (step.newTab) {
-          this.page = resultPage;
-        }
-      }
-      await acceptCookies(this.page);
-    }
+    // Escribir el término y enviar
+    await input.fill(searchTerm);
+    await input.press("Enter");
+    await this.page.waitForLoadState("domcontentloaded");
+    await this.page.waitForTimeout(1500);
   },
 );
 
 Then(
-  "I should see results related to {string}",
+  "I should see content related to {string}",
   async function (this: PlaywrightWorld, expectedContent: string) {
-    const domain = extractDomain(this.page.url());
-    const textToFind = VERIFY_TEXT[domain] ?? expectedContent;
-
     await expect(this.page.locator("body")).toContainText(
-      new RegExp(textToFind, "i"),
+      new RegExp(expectedContent, "i"),
       { timeout: 20000 },
     );
   },
